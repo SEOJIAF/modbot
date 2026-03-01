@@ -55,9 +55,10 @@ export class WebServer {
      */
     #server = null;
 
+    #initialized = false;
+
     constructor() {
         this.#app = express();
-        this.#setup();
     }
 
     /**
@@ -103,6 +104,10 @@ export class WebServer {
      * @returns {Promise<void>}
      */
     start() {
+        if (!this.#initialized) {
+            this.#setup();
+            this.#initialized = true;
+        }
         return new Promise((resolve, reject) => {
             const webConfig = config.data.webui ?? {};
             const port = webConfig.port ?? 8080;
