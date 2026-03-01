@@ -10,6 +10,18 @@ import {exists, readJSON} from '../util/fsutils.js';
  * @property {{enabled: boolean, guild: string}} debug
  * @property {string[]} featureWhitelist
  * @property {Emojis} emoji emoji ids
+ * @property {?WebUIConfig} webui web dashboard configuration
+ */
+
+/**
+ * @typedef {object} WebUIConfig
+ * @property {boolean} [enabled] enable the web dashboard (default: true)
+ * @property {number} [port] port to listen on (default: 8080)
+ * @property {string} [sessionSecret] secret used to sign session cookies
+ * @property {string} [clientId] Discord OAuth2 client ID
+ * @property {string} [clientSecret] Discord OAuth2 client secret
+ * @property {string} [redirectUri] Discord OAuth2 redirect URI
+ * @property {boolean} [secure] use secure cookies (set true when behind HTTPS proxy)
  */
 
 /**
@@ -127,6 +139,17 @@ export class Config {
                     },
                 },
                 featureWhitelist: (process.env.MODBOT_FEATURE_WHITELIST ?? '').split(/ *, */),
+                webui: {
+                    enabled: process.env.MODBOT_WEBUI_ENABLED !== undefined
+                        ? this.#parseBooleanFromEnv(process.env.MODBOT_WEBUI_ENABLED)
+                        : true,
+                    port: parseInt(process.env.MODBOT_WEBUI_PORT ?? '8080'),
+                    sessionSecret: process.env.MODBOT_WEBUI_SESSION_SECRET,
+                    clientId: process.env.MODBOT_WEBUI_CLIENT_ID,
+                    clientSecret: process.env.MODBOT_WEBUI_CLIENT_SECRET,
+                    redirectUri: process.env.MODBOT_WEBUI_REDIRECT_URI,
+                    secure: this.#parseBooleanFromEnv(process.env.MODBOT_WEBUI_SECURE),
+                },
                 emoji: {
                     source: process.env.MODBOT_EMOJI_SOURCE,
                     privacy: process.env.MODBOT_EMOJI_PRIVACY,
@@ -183,6 +206,7 @@ export class Config {
             };
             this.#data.emoji ??= {};
             this.#data.featureWhitelist ??= [];
+            this.#data.webui ??= {};
         }
     }
 
