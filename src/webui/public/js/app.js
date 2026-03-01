@@ -6,6 +6,9 @@
     let currentUser = null;
     let guilds = [];
 
+    // Cache for resolved user info (id -> {username, avatar})
+    const userCache = {};
+
     // ── Helpers ─────────────────────────────────────────────────────────────
 
     function getCsrfToken() {
@@ -73,6 +76,86 @@
             e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
         }
         return e;
+    }
+
+    // ── User mention chip ────────────────────────────────────────────────────
+
+    /**
+     * Fetch and cache Discord user info for a given ID
+     * @param {string} userId
+     * @returns {Promise<{id:string,username:string,avatar:string|null}|null>}
+     */
+    async function fetchUserInfo(userId) {
+        if (!userId || !/^\d{17,20}$/.test(userId)) return null;
+        if (userCache[userId] !== undefined) return userCache[userId];
+        try {
+            const info = await api(`/users/${userId}`);
+            userCache[userId] = info;
+            return info;
+        } catch {
+            userCache[userId] = null;
+            return null;
+        }
+    }
+
+    /**
+     * Build a user mention chip (avatar + username)
+     * Falls back to raw ID if user info is unavailable.
+     * @param {string} userId
+     * @returns {HTMLElement}
+     */
+    function buildUserChip(userId) {
+        const chip = el('span', {className: 'user-chip'});
+        chip.textContent = userId;
+
+        fetchUserInfo(userId).then(info => {
+            if (!info) return;
+            chip.innerHTML = '';
+            chip.appendChild(el('img', {
+                src: avatarUrl(info.id, info.avatar, 32),
+                className: 'user-chip-avatar',
+                alt: info.username,
+            }));
+            chip.appendChild(document.createTextNode(info.username));
+        });
+
+        return chip;
+    }
+
+    // ── Modal ────────────────────────────────────────────────────────────────
+
+    function openModal(title, bodyEl, onSubmit) {
+        const overlay = el('div', {className: 'modal-overlay', onClick: e => {
+            if (e.target === overlay) closeModal(overlay);
+        }});
+
+        const modal = el('div', {className: 'modal'});
+        const header = el('div', {className: 'modal-header'},
+            el('h3', {}, title),
+            el('button', {className: 'modal-close', onClick: () => closeModal(overlay)}, '✕')
+        );
+        const body = el('div', {className: 'modal-body'}, bodyEl);
+        const footer = el('div', {className: 'modal-footer'},
+            el('button', {className: 'btn btn-primary', onClick: async () => {
+                try {
+                    await onSubmit();
+                    closeModal(overlay);
+                } catch (err) {
+                    const errEl = modal.querySelector('.modal-error');
+                    if (errEl) errEl.textContent = err.message;
+                }
+            }}, 'Save'),
+            el('button', {className: 'btn', onClick: () => closeModal(overlay)}, 'Cancel')
+        );
+        const errEl = el('div', {className: 'modal-error'});
+        modal.append(header, body, errEl, footer);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        return overlay;
+    }
+
+    function closeModal(overlay) {
+        overlay.remove();
     }
 
     // ── Init ─────────────────────────────────────────────────────────────────
@@ -349,8 +432,8 @@
             tbody.appendChild(el('tr', {},
                 el('td', {}, String(m.id)),
                 el('td', {}, el('span', {className: badgeCls(m.action)}, m.action)),
-                el('td', {}, m.userid),
-                el('td', {}, m.moderator ?? '—'),
+                el('td', {}, buildUserChip(m.userid)),
+                el('td', {}, m.moderator ? buildUserChip(m.moderator) : '—'),
                 el('td', {}, fmtTime(m.created)),
                 el('td', {}, duration),
                 el('td', {}, m.reason?.substring(0, 60) ?? '—'),
@@ -368,6 +451,11 @@
         try {
             const items = await api(`/guilds/${guildId}/badwords`);
             container.innerHTML = '';
+
+            const toolbar = el('div', {className: 'toolbar'});
+            toolbar.appendChild(el('button', {className: 'btn btn-primary btn-sm', onClick: () => openAddBadWordModal(guildId, container)}, '＋ Add Bad Word'));
+            container.appendChild(toolbar);
+
             if (!items.length) {
                 container.appendChild(el('div', {className: 'empty-state'}, 'No bad words configured.'));
                 return;
@@ -388,6 +476,58 @@
         }
     }
 
+    function openAddBadWordModal(guildId, container) {
+        const form = el('div', {className: 'form-grid'});
+
+        const triggerTypeSel = el('select', {className: 'form-input'});
+        for (const t of ['include', 'match', 'regex', 'phishing']) {
+            triggerTypeSel.appendChild(el('option', {value: t}, t));
+        }
+
+        const triggerInput = el('input', {type: 'text', className: 'form-input', placeholder: 'word or /regex/flags'});
+        const punishSel = el('select', {className: 'form-input'});
+        for (const p of ['none', 'ban', 'kick', 'mute', 'softban', 'strike']) {
+            punishSel.appendChild(el('option', {value: p}, p));
+        }
+        const durationInput = el('input', {type: 'text', className: 'form-input', placeholder: 'e.g. 1d (optional)'});
+        const responseInput = el('input', {type: 'text', className: 'form-input', placeholder: 'Optional response message'});
+        const priorityInput = el('input', {type: 'number', className: 'form-input', value: '0', placeholder: '0'});
+        const dmInput = el('input', {type: 'text', className: 'form-input', placeholder: 'Optional DM to user'});
+        const globalChk = el('input', {type: 'checkbox', id: 'bw-global'});
+
+        form.append(
+            buildFormField('Trigger Type', triggerTypeSel),
+            buildFormField('Trigger Content', triggerInput),
+            buildFormField('Punishment', punishSel),
+            buildFormField('Duration', durationInput),
+            buildFormField('Response', responseInput),
+            buildFormField('Priority', priorityInput),
+            buildFormField('DM Message', dmInput),
+            buildFormField('Global (all channels)', globalChk),
+        );
+
+        openModal('Add Bad Word', form, async () => {
+            const result = await api(`/guilds/${guildId}/badwords`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    triggerType: triggerTypeSel.value,
+                    triggerContent: triggerInput.value.trim(),
+                    punishment: punishSel.value,
+                    duration: durationInput.value.trim() || null,
+                    response: responseInput.value.trim() || null,
+                    priority: parseInt(priorityInput.value) || 0,
+                    dm: dmInput.value.trim() || null,
+                    global: globalChk.checked,
+                    channels: [],
+                }),
+            });
+            if (!result.id) throw new Error('Failed to create bad word');
+            delete container.dataset.loaded;
+            container.innerHTML = '';
+            loadBadWords(guildId, container);
+        });
+    }
+
     // ── Auto-Responses Tab ───────────────────────────────────────────────────
 
     async function loadResponses(guildId, container) {
@@ -395,6 +535,11 @@
         try {
             const items = await api(`/guilds/${guildId}/responses`);
             container.innerHTML = '';
+
+            const toolbar = el('div', {className: 'toolbar'});
+            toolbar.appendChild(el('button', {className: 'btn btn-primary btn-sm', onClick: () => openAddResponseModal(guildId, container)}, '＋ Add Auto-Response'));
+            container.appendChild(toolbar);
+
             if (!items.length) {
                 container.appendChild(el('div', {className: 'empty-state'}, 'No auto-responses configured.'));
                 return;
@@ -412,6 +557,51 @@
         } catch (err) {
             container.innerHTML = `<div class="empty-state">Failed to load: ${err.message}</div>`;
         }
+    }
+
+    function openAddResponseModal(guildId, container) {
+        const form = el('div', {className: 'form-grid'});
+
+        const triggerTypeSel = el('select', {className: 'form-input'});
+        for (const t of ['include', 'match', 'regex', 'phishing']) {
+            triggerTypeSel.appendChild(el('option', {value: t}, t));
+        }
+        const triggerInput = el('input', {type: 'text', className: 'form-input', placeholder: 'word or /regex/flags'});
+        const responseInput = el('input', {type: 'text', className: 'form-input', placeholder: 'Response message'});
+        const globalChk = el('input', {type: 'checkbox', id: 'resp-global'});
+
+        form.append(
+            buildFormField('Trigger Type', triggerTypeSel),
+            buildFormField('Trigger Content', triggerInput),
+            buildFormField('Response', responseInput),
+            buildFormField('Global (all channels)', globalChk),
+        );
+
+        openModal('Add Auto-Response', form, async () => {
+            const result = await api(`/guilds/${guildId}/responses`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    triggerType: triggerTypeSel.value,
+                    triggerContent: triggerInput.value.trim(),
+                    response: responseInput.value.trim(),
+                    global: globalChk.checked,
+                    channels: [],
+                }),
+            });
+            if (!result.id) throw new Error('Failed to create auto-response');
+            delete container.dataset.loaded;
+            container.innerHTML = '';
+            loadResponses(guildId, container);
+        });
+    }
+
+    // ── Form Helpers ─────────────────────────────────────────────────────────
+
+    function buildFormField(label, inputEl) {
+        const wrapper = el('div', {className: 'form-field'});
+        wrapper.appendChild(el('label', {className: 'form-label'}, label));
+        wrapper.appendChild(inputEl);
+        return wrapper;
     }
 
     // ── Shared trigger table builder ─────────────────────────────────────────

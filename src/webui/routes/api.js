@@ -1,9 +1,11 @@
 import {Router} from 'express';
+import got from 'got';
 import GuildSettings from '../../settings/GuildSettings.js';
 import BadWord from '../../database/BadWord.js';
 import AutoResponse from '../../database/AutoResponse.js';
 import Moderation from '../../database/Moderation.js';
 import WhereParameter from '../../database/WhereParameter.js';
+import config from '../../bot/Config.js';
 
 const router = Router();
 
@@ -48,6 +50,26 @@ router.get('/me', (req, res) => {
 
 router.get('/guilds', (req, res) => {
     res.json(req.session.guilds ?? []);
+});
+
+// ─── User Info ────────────────────────────────────────────────────────────────
+
+router.get('/users/:userId', async (req, res) => {
+    const {userId} = req.params;
+    if (!/^\d{17,20}$/.test(userId)) {
+        return res.status(400).json({error: 'Invalid user ID'});
+    }
+    try {
+        const token = config.data.authToken;
+        if (!token) return res.status(503).json({error: 'Service temporarily unavailable'});
+        const user = await got.get(`https://discord.com/api/v10/users/${userId}`, {
+            headers: {Authorization: `Bot ${token}`},
+        }).json();
+        res.json({id: user.id, username: user.username, avatar: user.avatar});
+    } catch (err) {
+        const status = err.response?.statusCode === 404 ? 404 : 502;
+        res.status(status).json({error: status === 404 ? 'User not found' : 'Failed to fetch user'});
+    }
 });
 
 // ─── Guild Settings ───────────────────────────────────────────────────────────
@@ -118,6 +140,32 @@ router.get('/guilds/:guildId/badwords', requireGuildAccess, async (req, res) => 
     }
 });
 
+router.post('/guilds/:guildId/badwords', requireGuildAccess, async (req, res) => {
+    try {
+        const {triggerType, triggerContent, punishment, duration, response, priority, dm, global: isGlobal, channels} = req.body;
+        const result = await BadWord.new(
+            req.params.guildId,
+            Boolean(isGlobal),
+            Array.isArray(channels) ? channels : [],
+            String(triggerType || 'include'),
+            String(triggerContent || ''),
+            response || null,
+            punishment || 'none',
+            duration ? parseInt(String(duration)) || null : null,
+            priority !== undefined ? parseInt(String(priority)) || 0 : 0,
+            dm || null,
+            false,
+        );
+        if (!result.success) return res.status(400).json({error: result.message});
+        const bw = result.badWord;
+        res.status(201).json({id: bw.id, trigger: bw.trigger, punishment: bw.punishment,
+            response: bw.response, global: bw.global, channels: bw.channels,
+            priority: bw.priority, dm: bw.dm});
+    } catch (err) {
+        res.status(500).json({error: String(err.message)});
+    }
+});
+
 router.delete('/guilds/:guildId/badwords/:id', requireGuildAccess, async (req, res) => {
     try {
         const bw = await BadWord.getByID(req.params.id, req.params.guildId);
@@ -142,6 +190,27 @@ router.get('/guilds/:guildId/responses', requireGuildAccess, async (req, res) =>
             channels: r.channels,
             enableVision: r.enableVision,
         })));
+    } catch (err) {
+        res.status(500).json({error: String(err.message)});
+    }
+});
+
+router.post('/guilds/:guildId/responses', requireGuildAccess, async (req, res) => {
+    try {
+        const {triggerType, triggerContent, response, global: isGlobal, channels} = req.body;
+        const result = await AutoResponse.new(
+            req.params.guildId,
+            Boolean(isGlobal),
+            Array.isArray(channels) ? channels : [],
+            String(triggerType || 'include'),
+            String(triggerContent || ''),
+            String(response || ''),
+            false,
+        );
+        if (!result.success) return res.status(400).json({error: result.message});
+        const r = result.response;
+        res.status(201).json({id: r.id, trigger: r.trigger, response: r.response,
+            global: r.global, channels: r.channels});
     } catch (err) {
         res.status(500).json({error: String(err.message)});
     }
