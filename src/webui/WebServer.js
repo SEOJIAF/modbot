@@ -94,7 +94,7 @@ export class WebServer {
         this.#app.use('/auth', limiter, authRouter);
         this.#app.use('/api', limiter, csrfMiddleware, apiRouter);
 
-        this.#app.get('*', limiter, (_req, res) => {
+        this.#app.get('/{*path}', limiter, (_req, res) => {
             res.sendFile(path.join(__dirname, 'public', 'index.html'));
         });
     }
