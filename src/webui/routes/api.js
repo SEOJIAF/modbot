@@ -177,6 +177,47 @@ router.delete('/guilds/:guildId/badwords/:id', requireGuildAccess, async (req, r
     }
 });
 
+router.post('/guilds/:guildId/badwords/bulk', requireGuildAccess, async (req, res) => {
+    try {
+        const {words, triggerType, punishment, duration, response, global: isGlobal, channels} = req.body;
+        if (!Array.isArray(words) || words.length === 0) {
+            return res.status(400).json({error: 'words must be a non-empty array'});
+        }
+
+        let created = 0;
+        let failed = 0;
+        const errors = [];
+
+        for (const word of words) {
+            const content = String(word).trim();
+            if (!content) { failed++; continue; }
+            const result = await BadWord.new(
+                req.params.guildId,
+                Boolean(isGlobal),
+                Array.isArray(channels) ? channels : [],
+                String(triggerType || 'include'),
+                content,
+                response || null,
+                punishment || 'none',
+                duration ? (Number.isNaN(parseInt(String(duration))) ? null : parseInt(String(duration))) : null,
+                0,
+                null,
+                false,
+            );
+            if (result.success) {
+                created++;
+            } else {
+                failed++;
+                errors.push({word: content, error: result.message});
+            }
+        }
+
+        res.status(201).json({created, failed, errors});
+    } catch (err) {
+        res.status(500).json({error: String(err.message)});
+    }
+});
+
 // ─── Auto Responses ───────────────────────────────────────────────────────────
 
 router.get('/guilds/:guildId/responses', requireGuildAccess, async (req, res) => {
