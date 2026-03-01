@@ -3,6 +3,7 @@ import {ShardingManager} from 'discord.js';
 import config from './bot/Config.js';
 import database from './database/Database.js';
 import commandManager from './commands/CommandManager.js';
+import webServer from './webui/WebServer.js';
 
 try {
     await logger.debug('Loading settings');
@@ -14,6 +15,12 @@ try {
     await database.runMigrations();
     await logger.notice('Registering slash commands');
     await commandManager.registerGlobalCommands();
+
+    if (config.data.webui?.enabled !== false) {
+        const port = config.data.webui?.port ?? 8080;
+        await webServer.start();
+        await logger.info(`Web UI started on port ${port}`);
+    }
 
     await logger.info('Spawning shards');
     const manager = new ShardingManager(

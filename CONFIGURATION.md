@@ -197,6 +197,71 @@ Array of server ids that are allowed to use special features (e.g. `/purge-invit
 }
 ```
 
+## Web UI (optional)
+Configuration for the built-in web dashboard. The dashboard is enabled by default on port 8080 when no explicit `webui.enabled: false` is set.
+
+### Enabled
+Whether to start the web dashboard server.
+
+| type    | config file      | environment              |
+|---------|------------------|--------------------------|
+| boolean | `webui.enabled`  | `MODBOT_WEBUI_ENABLED`   |
+
+### Port
+Port the web server listens on (default: `8080`).
+
+| type   | config file   | environment           |
+|--------|---------------|-----------------------|
+| number | `webui.port`  | `MODBOT_WEBUI_PORT`   |
+
+### Session Secret
+Secret used to sign session cookies. Change this to a long random string in production.
+
+| type   | config file             | environment                     |
+|--------|-------------------------|---------------------------------|
+| string | `webui.sessionSecret`   | `MODBOT_WEBUI_SESSION_SECRET`   |
+
+### Discord OAuth2 Credentials
+Create an OAuth2 application in the [Discord Developer Portal](https://discord.com/developers/applications) and add the redirect URI. The scopes required are `identify` and `guilds`.
+
+#### Client ID
+| type   | config file       | environment               |
+|--------|-------------------|---------------------------|
+| string | `webui.clientId`  | `MODBOT_WEBUI_CLIENT_ID`  |
+
+#### Client Secret
+| type   | config file           | environment                   |
+|--------|-----------------------|-------------------------------|
+| string | `webui.clientSecret`  | `MODBOT_WEBUI_CLIENT_SECRET`  |
+
+#### Redirect URI
+Must match exactly what is configured in the Discord Developer Portal, e.g. `http://localhost:8080/auth/callback`.
+
+| type   | config file          | environment                  |
+|--------|----------------------|------------------------------|
+| string | `webui.redirectUri`  | `MODBOT_WEBUI_REDIRECT_URI`  |
+
+### Secure Cookies
+Set to `true` when running behind an HTTPS reverse proxy.
+
+| type    | config file      | environment             |
+|---------|------------------|-------------------------|
+| boolean | `webui.secure`   | `MODBOT_WEBUI_SECURE`   |
+
+### Web UI JSON Example
+```json
+{
+  "webui": {
+    "enabled": true,
+    "port": 8080,
+    "sessionSecret": "change-me-to-a-long-random-string",
+    "clientId": "YOUR_DISCORD_APP_CLIENT_ID",
+    "clientSecret": "YOUR_DISCORD_APP_CLIENT_SECRET",
+    "redirectUri": "http://localhost:8080/auth/callback"
+  }
+}
+```
+
 ## Emoji (optional)
 Snowflakes of discord custom Emojis. The bot must be on the server the emoji is registered on. Emoji IDs are strings and
 the naming follows the conventions described [above](#configuration).
