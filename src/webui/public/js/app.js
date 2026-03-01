@@ -124,7 +124,7 @@
 
     // ── Modal ────────────────────────────────────────────────────────────────
 
-    function openModal(title, bodyEl, onSubmit) {
+    function openModal(title, bodyEl, onSubmit, submitLabel = 'Save') {
         const overlay = el('div', {className: 'modal-overlay', onClick: e => {
             if (e.target === overlay) closeModal(overlay);
         }});
@@ -135,22 +135,33 @@
             el('button', {className: 'modal-close', onClick: () => closeModal(overlay)}, '✕')
         );
         const body = el('div', {className: 'modal-body'}, bodyEl);
-        const footer = el('div', {className: 'modal-footer'},
-            el('button', {className: 'btn btn-primary', onClick: async () => {
-                try {
-                    await onSubmit();
-                    closeModal(overlay);
-                } catch (err) {
-                    const errEl = modal.querySelector('.modal-error');
-                    if (errEl) errEl.textContent = err.message;
-                }
-            }}, 'Save'),
-            el('button', {className: 'btn', onClick: () => closeModal(overlay)}, 'Cancel')
-        );
         const errEl = el('div', {className: 'modal-error'});
+        const submitBtn = el('button', {className: 'btn btn-primary', onClick: async () => {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '…';
+            try {
+                await onSubmit();
+                closeModal(overlay);
+            } catch (err) {
+                errEl.textContent = err.message;
+                submitBtn.disabled = false;
+                submitBtn.textContent = submitLabel;
+            }
+        }}, submitLabel);
+        const footer = el('div', {className: 'modal-footer'},
+            submitBtn,
+            el('button', {className: 'btn btn-secondary', onClick: () => closeModal(overlay)}, 'Cancel')
+        );
         modal.append(header, body, errEl, footer);
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
+
+        // Focus first input
+        requestAnimationFrame(() => {
+            const first = modal.querySelector('input:not([type=checkbox]), textarea, select');
+            if (first) first.focus();
+        });
+
         return overlay;
     }
 
@@ -176,7 +187,7 @@
         document.body.innerHTML = '';
         document.body.appendChild(
             el('div', {id: 'login-page'},
-                el('div', {style: 'font-size:3rem'}, '🤖'),
+                el('div', {style: 'font-size:2.8rem;margin-bottom:4px'}, '🤖'),
                 el('h1', {}, 'ModBot Dashboard'),
                 el('p', {}, 'Sign in with Discord to manage your server\'s moderation settings.'),
                 el('a', {href: '/auth/login', className: 'login-btn'},
@@ -200,6 +211,7 @@
             selectGuild(guilds[0].id);
         } else {
             main.appendChild(el('div', {className: 'empty-state'},
+                el('span', {className: 'empty-state-icon'}, '🏰'),
                 el('p', {}, 'No guilds with Manage Server permission found.')
             ));
         }
@@ -231,7 +243,7 @@
                 className: 'user-avatar',
                 alt: currentUser.username,
             }),
-            el('span', {}, currentUser.username),
+            el('span', {className: 'user-name'}, currentUser.username),
             el('button', {className: 'logout-btn', onClick: () => { location.href = '/auth/logout'; }}, 'Logout')
         );
         sidebar.appendChild(userInfo);
@@ -254,6 +266,7 @@
 
         const guild = guilds.find(g => g.id === guildId);
         main.appendChild(el('h2', {className: 'page-title'}, guild?.name ?? guildId));
+        main.appendChild(el('p', {className: 'page-subtitle'}, `Guild ID: ${guildId}`));
 
         const tabs = el('div', {className: 'tabs'});
         const tabDefs = [
@@ -274,7 +287,7 @@
             contents[t.id] = content;
             main.appendChild(content);
         }
-        main.insertBefore(tabs, main.children[1]);
+        main.insertBefore(tabs, main.children[2]);
 
         activateTab('settings');
         loadTab('settings', guildId, contents);
@@ -418,7 +431,10 @@
     function renderModTable(container, mods) {
         container.innerHTML = '';
         if (!mods.length) {
-            container.appendChild(el('div', {className: 'empty-state'}, 'No moderations found.'));
+            container.appendChild(el('div', {className: 'empty-state'},
+                el('span', {className: 'empty-state-icon'}, '📋'),
+                el('p', {}, 'No moderations found.')
+            ));
             return;
         }
         const table = el('table', {});
@@ -430,7 +446,7 @@
         for (const m of mods) {
             const duration = m.expireTime ? fmtDuration(m.expireTime - m.created) : '—';
             tbody.appendChild(el('tr', {},
-                el('td', {}, String(m.id)),
+                el('td', {className: 'mono'}, String(m.id)),
                 el('td', {}, el('span', {className: badgeCls(m.action)}, m.action)),
                 el('td', {}, buildUserChip(m.userid)),
                 el('td', {}, m.moderator ? buildUserChip(m.moderator) : '—'),
@@ -453,11 +469,15 @@
             container.innerHTML = '';
 
             const toolbar = el('div', {className: 'toolbar'});
-            toolbar.appendChild(el('button', {className: 'btn btn-primary btn-sm', onClick: () => openAddBadWordModal(guildId, container)}, '＋ Add Bad Word'));
+            toolbar.appendChild(el('button', {className: 'btn btn-primary btn-sm', onClick: () => openAddBadWordModal(guildId, container)}, '＋ Add Word'));
+            toolbar.appendChild(el('button', {className: 'btn btn-secondary btn-sm', onClick: () => openBulkImportModal(guildId, container)}, '⬆ Bulk Import'));
             container.appendChild(toolbar);
 
             if (!items.length) {
-                container.appendChild(el('div', {className: 'empty-state'}, 'No bad words configured.'));
+                container.appendChild(el('div', {className: 'empty-state'},
+                    el('span', {className: 'empty-state-icon'}, '🚫'),
+                    el('p', {}, 'No bad words configured. Use the buttons above to add words.')
+                ));
                 return;
             }
             const table = buildTriggerTable(items, ['Punishment', 'Priority'], (bw) => [
@@ -489,21 +509,25 @@
         for (const p of ['none', 'ban', 'kick', 'mute', 'softban', 'strike']) {
             punishSel.appendChild(el('option', {value: p}, p));
         }
-        const durationInput = el('input', {type: 'text', className: 'form-input', placeholder: 'e.g. 1d (optional)'});
+        const durationInput = el('input', {type: 'text', className: 'form-input', placeholder: 'e.g. 86400 (seconds, optional)'});
         const responseInput = el('input', {type: 'text', className: 'form-input', placeholder: 'Optional response message'});
         const priorityInput = el('input', {type: 'number', className: 'form-input', value: '0', placeholder: '0'});
         const dmInput = el('input', {type: 'text', className: 'form-input', placeholder: 'Optional DM to user'});
-        const globalChk = el('input', {type: 'checkbox', id: 'bw-global'});
+        const globalChk = el('input', {type: 'checkbox', className: 'form-input', id: 'bw-global'});
 
         form.append(
             buildFormField('Trigger Type', triggerTypeSel),
             buildFormField('Trigger Content', triggerInput),
-            buildFormField('Punishment', punishSel),
-            buildFormField('Duration', durationInput),
+            buildFormFieldRow(
+                buildFormField('Punishment', punishSel),
+                buildFormField('Duration (seconds)', durationInput)
+            ),
             buildFormField('Response', responseInput),
-            buildFormField('Priority', priorityInput),
+            buildFormFieldRow(
+                buildFormField('Priority', priorityInput),
+                buildFormField('Global (all channels)', globalChk)
+            ),
             buildFormField('DM Message', dmInput),
-            buildFormField('Global (all channels)', globalChk),
         );
 
         openModal('Add Bad Word', form, async () => {
@@ -528,6 +552,102 @@
         });
     }
 
+    // ── Bulk Import Modal ────────────────────────────────────────────────────
+
+    function openBulkImportModal(guildId, container) {
+        const form = el('div', {className: 'form-grid'});
+
+        const wordsTextarea = el('textarea', {
+            className: 'form-input',
+            placeholder: 'bad\nword\nanother phrase\none per line…',
+            rows: '8',
+        });
+
+        const previewEl = el('span', {className: 'count'}, '0');
+        const previewBanner = el('div', {className: 'bulk-preview'},
+            'Words to import:',
+            previewEl
+        );
+
+        wordsTextarea.addEventListener('input', () => {
+            const count = parseWordList(wordsTextarea.value).length;
+            previewEl.textContent = String(count);
+        });
+
+        const triggerTypeSel = el('select', {className: 'form-input'});
+        for (const t of ['include', 'match', 'regex']) {
+            triggerTypeSel.appendChild(el('option', {value: t}, t));
+        }
+
+        const punishSel = el('select', {className: 'form-input'});
+        for (const p of ['none', 'ban', 'kick', 'mute', 'softban', 'strike']) {
+            punishSel.appendChild(el('option', {value: p}, p));
+        }
+        const durationInput = el('input', {type: 'text', className: 'form-input', placeholder: 'e.g. 86400 (seconds, optional)'});
+        const globalChk = el('input', {type: 'checkbox', className: 'form-input', id: 'bw-bulk-global'});
+
+        const wordsField = el('div', {className: 'form-field'});
+        wordsField.appendChild(el('div', {style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:5px'},
+            el('label', {className: 'form-label'}, 'Words — one per line'),
+            previewBanner
+        ));
+        wordsField.appendChild(wordsTextarea);
+        wordsField.appendChild(el('p', {className: 'form-hint'}, 'Each non-empty line becomes a separate bad word entry.'));
+
+        form.append(
+            wordsField,
+            buildFormField('Trigger Type', triggerTypeSel),
+            buildFormFieldRow(
+                buildFormField('Punishment', punishSel),
+                buildFormField('Duration (seconds)', durationInput)
+            ),
+            buildFormField('Global (all channels)', globalChk),
+        );
+
+        openModal('Bulk Import Bad Words', form, async () => {
+            const words = parseWordList(wordsTextarea.value);
+            if (!words.length) throw new Error('Enter at least one word.');
+
+            const data = await api(`/guilds/${guildId}/badwords/bulk`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    words,
+                    triggerType: triggerTypeSel.value,
+                    punishment: punishSel.value,
+                    duration: durationInput.value.trim() || null,
+                    global: globalChk.checked,
+                    channels: [],
+                }),
+            });
+
+            delete container.dataset.loaded;
+            container.innerHTML = '';
+            loadBadWords(guildId, container);
+
+            // Show result banner after reload
+            requestAnimationFrame(() => {
+                const banner = el('div', {className: `import-result ${data.failed > 0 ? 'error' : 'success'}`},
+                    data.failed > 0
+                        ? `✅ Imported ${data.created} word(s) — ⚠️ ${data.failed} failed`
+                        : `✅ Successfully imported ${data.created} word(s)`
+                );
+                const toolbar = container.querySelector('.toolbar');
+                if (toolbar) toolbar.after(banner);
+                else container.prepend(banner);
+                setTimeout(() => banner.remove(), 6000);
+            });
+        }, 'Import');
+    }
+
+    /**
+     * Parse a newline-separated word list, trimming whitespace and removing blank lines.
+     * @param {string} text
+     * @returns {string[]}
+     */
+    function parseWordList(text) {
+        return text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    }
+
     // ── Auto-Responses Tab ───────────────────────────────────────────────────
 
     async function loadResponses(guildId, container) {
@@ -541,7 +661,10 @@
             container.appendChild(toolbar);
 
             if (!items.length) {
-                container.appendChild(el('div', {className: 'empty-state'}, 'No auto-responses configured.'));
+                container.appendChild(el('div', {className: 'empty-state'},
+                    el('span', {className: 'empty-state-icon'}, '💬'),
+                    el('p', {}, 'No auto-responses configured.')
+                ));
                 return;
             }
             const table = buildTriggerTable(items, ['Response'], (r) => [
@@ -568,7 +691,7 @@
         }
         const triggerInput = el('input', {type: 'text', className: 'form-input', placeholder: 'word or /regex/flags'});
         const responseInput = el('input', {type: 'text', className: 'form-input', placeholder: 'Response message'});
-        const globalChk = el('input', {type: 'checkbox', id: 'resp-global'});
+        const globalChk = el('input', {type: 'checkbox', className: 'form-input', id: 'resp-global'});
 
         form.append(
             buildFormField('Trigger Type', triggerTypeSel),
@@ -604,6 +727,12 @@
         return wrapper;
     }
 
+    function buildFormFieldRow(...fields) {
+        const row = el('div', {className: 'form-row'});
+        for (const f of fields) row.appendChild(f);
+        return row;
+    }
+
     // ── Shared trigger table builder ─────────────────────────────────────────
 
     function buildTriggerTable(items, extraHeaders, extraCells, onDelete) {
@@ -618,9 +747,9 @@
             const scope = item.global ? 'Global' : `${item.channels?.length ?? 0} channels`;
             const delBtn = el('button', {className: 'btn btn-danger btn-sm', onClick: () => onDelete(item)}, '🗑');
             tbody.appendChild(el('tr', {},
-                el('td', {}, String(item.id)),
-                el('td', {}, item.trigger?.type ?? '—'),
-                el('td', {}, item.trigger?.content?.substring(0, 40) ?? '—'),
+                el('td', {className: 'mono'}, String(item.id)),
+                el('td', {}, el('span', {className: 'badge badge-default'}, item.trigger?.type ?? '—')),
+                el('td', {className: 'mono'}, item.trigger?.content?.substring(0, 40) ?? '—'),
                 el('td', {}, scope),
                 ...extraCells(item).map(v => el('td', {}, v)),
                 el('td', {}, delBtn)
