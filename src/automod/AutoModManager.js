@@ -231,6 +231,7 @@ export class AutoModManager {
         if (word.dm) {
             await member.guild.sendDM(member.user, `Your message in ${bold(message.guild.name)} was removed: ` + word.dm);
         }
+        await member.guild.sendDM(member.user, `Bad word detected in: ${message.content}`);
     }
 
     /**
